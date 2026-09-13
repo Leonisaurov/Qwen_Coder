@@ -3,96 +3,267 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mi Web App Flask</title>
+    <title>Chat - {{ usuario }}</title>
     <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
         body {
-            font-family: Arial, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background-color: #121212;
+            color: #e0e0e0;
+            min-height: 100vh;
+        }
+
+        .header {
+            background-color: #1e1e1e;
+            padding: 20px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #2a2a2a;
+        }
+
+        .header h1 {
+            font-weight: 300;
+            font-size: 24px;
+            color: #ffffff;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .username {
+            color: #888;
+            font-size: 14px;
+        }
+
+        .username span {
+            color: #6c5ce7;
+            font-weight: 500;
+        }
+
+        .logout-btn {
+            padding: 8px 16px;
+            background-color: transparent;
+            border: 1px solid #444;
+            color: #e0e0e0;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+            text-decoration: none;
+        }
+
+        .logout-btn:hover {
+            border-color: #ff6b6b;
+            color: #ff6b6b;
+        }
+
+        .chat-container {
             max-width: 800px;
             margin: 0 auto;
-            padding: 20px;
-            background-color: #f5f5f5;
+            padding: 30px 20px;
         }
-        h1 {
-            color: #333;
-            text-align: center;
-        }
-        .container {
-            background-color: white;
-            padding: 30px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        form {
+
+        .messages {
             display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
+            flex-direction: column;
+            gap: 15px;
+            margin-bottom: 30px;
+            max-height: 60vh;
+            overflow-y: auto;
         }
-        input[type="text"] {
+
+        .message {
+            background-color: #1e1e1e;
+            padding: 15px 20px;
+            border-radius: 12px;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 13px;
+        }
+
+        .message-user {
+            color: #6c5ce7;
+            font-weight: 500;
+        }
+
+        .message-time {
+            color: #666;
+        }
+
+        .message-text {
+            color: #e0e0e0;
+            line-height: 1.5;
+            word-wrap: break-word;
+        }
+
+        .empty-state {
+            text-align: center;
+            color: #666;
+            padding: 60px 20px;
+            font-style: italic;
+        }
+
+        .input-form {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background-color: #1e1e1e;
+            padding: 20px;
+            border-top: 1px solid #2a2a2a;
+        }
+
+        .input-container {
+            max-width: 800px;
+            margin: 0 auto;
+            display: flex;
+            gap: 15px;
+        }
+
+        .input-form input {
             flex: 1;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
+            padding: 14px 18px;
+            background-color: #2a2a2a;
+            border: 1px solid #333;
+            border-radius: 10px;
+            color: #e0e0e0;
             font-size: 16px;
+            transition: border-color 0.3s;
         }
-        button {
-            padding: 10px 20px;
-            background-color: #007bff;
+
+        .input-form input:focus {
+            outline: none;
+            border-color: #6c5ce7;
+        }
+
+        .input-form input::placeholder {
+            color: #666;
+        }
+
+        .input-form button {
+            padding: 14px 28px;
+            background-color: #6c5ce7;
             color: white;
             border: none;
-            border-radius: 4px;
-            cursor: pointer;
+            border-radius: 10px;
             font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            font-weight: 500;
         }
-        button:hover {
-            background-color: #0056b3;
+
+        .input-form button:hover {
+            background-color: #5b4cdb;
         }
-        .btn-danger {
-            background-color: #dc3545;
+
+        /* Scrollbar styling */
+        .messages::-webkit-scrollbar {
+            width: 8px;
         }
-        .btn-danger:hover {
-            background-color: #c82333;
+
+        .messages::-webkit-scrollbar-track {
+            background: #1a1a1a;
         }
-        ul {
-            list-style-type: none;
-            padding: 0;
-        }
-        li {
-            padding: 10px;
-            margin: 5px 0;
-            background-color: #f9f9f9;
+
+        .messages::-webkit-scrollbar-thumb {
+            background: #444;
             border-radius: 4px;
-            border-left: 3px solid #007bff;
         }
-        .empty-message {
-            color: #666;
-            font-style: italic;
-            text-align: center;
+
+        .messages::-webkit-scrollbar-thumb:hover {
+            background: #555;
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>👋 Mi Web App con Flask</h1>
-        
-        <form action="/agregar" method="POST">
-            <input type="text" name="mensaje" placeholder="Escribe un mensaje..." required>
-            <button type="submit">Agregar</button>
-        </form>
-        
-        <form action="/limpiar" method="POST" style="justify-content: flex-end;">
-            <button type="submit" class="btn-danger">Limpiar todo</button>
-        </form>
-        
-        <h2>Mensajes:</h2>
-        {% if mensajes %}
-            <ul>
-                {% for mensaje in mensajes %}
-                    <li>{{ mensaje }}</li>
-                {% endfor %}
-            </ul>
-        {% else %}
-            <p class="empty-message">No hay mensajes aún. ¡Sé el primero en agregar uno!</p>
-        {% endif %}
+    <div class="header">
+        <h1>💬 Chat</h1>
+        <div class="user-info">
+            <span class="username">Hola, <span>{{ usuario }}</span></span>
+            <a href="/logout" class="logout-btn">Salir</a>
+        </div>
     </div>
+
+    <div class="chat-container">
+        <div class="messages" id="messages">
+            {% if mensajes %}
+                {% for msg in mensajes %}
+                <div class="message">
+                    <div class="message-header">
+                        <span class="message-user">{{ msg.username }}</span>
+                        <span class="message-time">{{ msg.timestamp }}</span>
+                    </div>
+                    <div class="message-text">{{ msg.mensaje }}</div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="empty-state">
+                    No hay mensajes aún.<br>Sé el primero en escribir algo!
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <form class="input-form" action="/enviar" method="POST" id="chatForm">
+        <div class="input-container">
+            <input type="text" name="mensaje" placeholder="Escribe un mensaje..." required autocomplete="off">
+            <button type="submit">Enviar</button>
+        </div>
+    </form>
+
+    <script>
+        // Auto-scroll al final de los mensajes
+        const messagesContainer = document.getElementById('messages');
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+        // Auto-refresh cada 5 segundos para nuevos mensajes
+        setInterval(async () => {
+            try {
+                const response = await fetch('/api/mensajes');
+                const data = await response.json();
+                
+                // Aquí podrías implementar una lógica más sofisticada
+                // para solo agregar mensajes nuevos sin recargar toda la página
+                if (data.length !== {{ mensajes|length }}) {
+                    location.reload();
+                }
+            } catch (error) {
+                console.error('Error fetching messages:', error);
+            }
+        }, 5000);
+
+        // Enter para enviar
+        document.querySelector('input[name="mensaje"]').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                document.getElementById('chatForm').submit();
+            }
+        });
+    </script>
 </body>
 </html>
