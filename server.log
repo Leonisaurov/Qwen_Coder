@@ -6,4 +6,3 @@ INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a
  * Running on http://127.0.0.1:5001
  * Running on http://21.0.6.127:5001
 INFO:werkzeug:[33mPress CTRL+C to quit[0m
-INFO:werkzeug:127.0.0.1 - - [13/Sep/2026 01:58:31] "GET /login HTTP/1.1" 200 -

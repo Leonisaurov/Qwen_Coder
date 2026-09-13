@@ -339,45 +339,40 @@
             reconnectionDelay: 1000
         });
         
-        socket.on('connect', () => {
-            console.log('✅ Conectado al servidor WebSocket');
-            // Unirse a la sala global
-            socket.emit('join_chat', { username: currentUser });
-        });
-        
-        socket.on('connect_error', (error) => {
-            console.error('❌ Error de conexión:', error);
-        });
-        
-        socket.on('receive_message', (msg) => {
+        socket.on('nuevo_mensaje', (msg) => {
             console.log('📨 Mensaje recibido:', msg);
             addMessage(msg);
             scrollToBottom();
         });
         
-        socket.on('system_message', (data) => {
+        socket.on('historial_mensajes', (msgs) => {
+            console.log('📜 Cargando mensajes históricos:', msgs.length);
+            msgs.forEach(msg => addMessage(msg));
+            scrollToBottom();
+        });
+        
+        socket.on('sistema', (data) => {
             const sysDiv = document.createElement('div');
             sysDiv.className = 'system-message';
-            sysDiv.textContent = data.text;
+            sysDiv.textContent = data.msg;
             messagesContainer.appendChild(sysDiv);
             scrollToBottom();
         });
         
-        // Cargar mensajes históricos al iniciar
-        async function loadHistoricalMessages() {
-            try {
-                const response = await fetch('/api/mensajes');
-                const historicalMessages = await response.json();
-                console.log('📜 Cargando', historicalMessages.length, 'mensajes históricos');
-                historicalMessages.forEach(msg => addMessage(msg));
-                scrollToBottom();
-            } catch (error) {
-                console.error('Error cargando mensajes históricos:', error);
-            }
-        }
+        socket.on('usuario_escribiendo', (data) => {
+            // Podríamos mostrar "X está escribiendo..." aquí
+            console.log(data.user + ' está escribiendo...');
+        });
         
-        // Cargar mensajes al iniciar
-        loadHistoricalMessages();
+        socket.on('usuarios_en_linea', (users) => {
+            console.log('Usuarios en línea:', users);
+        });
+        
+        // Conectar y unirse al chat
+        socket.on('connect', () => {
+            console.log('✅ Conectado al servidor WebSocket');
+            socket.emit('unirse_chat', {});
+        });
         
         document.getElementById('chatForm').addEventListener('submit', (e) => {
             e.preventDefault();
@@ -387,11 +382,8 @@
             console.log('📤 Enviando mensaje:', text);
             
             // Enviar vía WebSocket
-            socket.emit('send_message', {
-                username: currentUser,
-                mensaje: text
-            }, (ack) => {
-                console.log('Ack:', ack);
+            socket.emit('enviar_mensaje', {
+                msg: text
             });
             
             messageInput.value = '';
@@ -401,80 +393,97 @@
             const emptyState = messagesContainer.querySelector('.empty-state');
             if (emptyState) emptyState.remove();
             
-            // Evitar duplicados usando un ID único basado en timestamp + username
-            const msgId = `${msg.username}-${msg.timestamp}-${msg.mensaje}`;
-            const existing = Array.from(messagesContainer.querySelectorAll('.message')).find(el => 
-                el.dataset.msgId === msgId
-            );
-            if (existing) return;
+            // Evitar duplicados usando el ID del mensaje
+            if (msg.id) {
+                const existing = Array.from(messagesContainer.querySelectorAll('.message')).find(el => 
+                    el.dataset.msgId === msg.id
+                );
+                if (existing) return;
+            }
             
             const msgDiv = document.createElement('div');
             msgDiv.className = 'message';
-            msgDiv.dataset.msgId = msgId;
-            msgDiv.innerHTML = '<div class="message-header"><span class="message-user" onclick="openProfile(\'' + escapeHtml(msg.username) + '\')">' + escapeHtml(msg.username) + '</span><span class="message-time">' + msg.timestamp + '</span></div><div class="message-text">' + escapeHtml(msg.mensaje) + '</div>';
+            msgDiv.dataset.msgId = msg.id || Date.now();
+            
+            const userHtml = `<span class="message-user" onclick="openProfile('${escapeHtml(msg.user)}')">${escapeHtml(msg.user)}</span>`;
+            const timeHtml = `<span class="message-time">${msg.time}</span>`;
+            const textHtml = `<div class="message-text">${escapeHtml(msg.msg)}</div>`;
+            
+            msgDiv.innerHTML = `<div class="message-header">${userHtml}${timeHtml}</div>${textHtml}`;
             messagesContainer.appendChild(msgDiv);
         }
 
-        // Funciones para el modal de perfil
-        async function openProfile(username) {
-            try {
-                const response = await fetch(`/api/perfil/${encodeURIComponent(username)}`);
-                if (!response.ok) throw new Error('Perfil no encontrado');
-                const perfil = await response.json();
-                
-                document.getElementById('profileName').textContent = username;
-                document.getElementById('profileAvatar').textContent = username.charAt(0).toUpperCase();
-                document.getElementById('profileAvatar').style.backgroundColor = perfil.avatar_color || '#6c5ce7';
-                document.getElementById('profileMessages').textContent = perfil.mensajes_enviados || 0;
-                
-                // Calcular días activos
-                const fechaRegistro = new Date(perfil.fecha_registro);
-                const diasActivos = Math.max(1, Math.floor((new Date() - fechaRegistro) / (1000 * 60 * 60 * 24)));
-                document.getElementById('profileDays').textContent = diasActivos;
-                
-                // Formatear fecha de registro
-                document.getElementById('profileRegistered').textContent = fechaRegistro.toLocaleDateString('es-ES', {
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric'
-                });
-                
-                document.getElementById('profileModal').classList.add('active');
-            } catch (error) {
-                console.error('Error cargando perfil:', error);
-            }
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
         }
-        
-        function closeProfileModal(event) {
-            if (event.target.id === 'profileModal') {
-                document.getElementById('profileModal').classList.remove('active');
-            }
-        }
-        
-        function closeProfileModalBtn() {
-            document.getElementById('profileModal').classList.remove('active');
-        }
-        
-        // Cerrar modal con tecla Escape
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') {
-                document.getElementById('profileModal').classList.remove('active');
-            }
-        });
 
         function scrollToBottom() {
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
         }
 
         async function logout() {
-            window.location.href = '/logout';
+            await fetch('/api/logout', { method: 'POST' });
+            window.location.reload();
         }
 
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
+        // Funciones para el modal de perfil
+        async function openProfile(username) {
+            console.log('👤 Abriendo perfil de:', username);
+            try {
+                const response = await fetch(`/api/profile/${encodeURIComponent(username)}`);
+                if (!response.ok) {
+                    console.error('Error HTTP:', response.status);
+                    throw new Error('Perfil no encontrado');
+                }
+                const perfil = await response.json();
+                console.log('Perfil cargado:', perfil);
+                
+                document.getElementById('profileName').textContent = perfil.username;
+                document.getElementById('profileAvatar').textContent = perfil.username.charAt(0).toUpperCase();
+                document.getElementById('profileAvatar').style.backgroundColor = perfil.color || '#6c5ce7';
+                document.getElementById('profileMessages').textContent = perfil.message_count || 0;
+                
+                // Calcular días activos
+                const fechaRegistro = new Date(perfil.registered_at);
+                const hoy = new Date();
+                const diasActivos = Math.max(1, Math.floor((hoy - fechaRegistro) / (1000 * 60 * 60 * 24)));
+                document.getElementById('profileDays').textContent = diasActivos;
+                
+                // Formatear fecha de registro
+                document.getElementById('profileRegistered').textContent = fechaRegistro.toLocaleDateString('es-ES', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+                
+                document.getElementById('profileModal').classList.add('active');
+            } catch (error) {
+                console.error('Error cargando perfil:', error);
+                alert('No se pudo cargar el perfil del usuario');
+            }
         }
+
+        function closeProfileModal(event) {
+            if (event.target === document.getElementById('profileModal')) {
+                document.getElementById('profileModal').classList.remove('active');
+            }
+        }
+
+        function closeProfileModalBtn() {
+            document.getElementById('profileModal').classList.remove('active');
+        }
+
+        // Cerrar modal con tecla Escape
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closeProfileModalBtn();
+            }
+        });
     </script>
     {% else %}
     <div class="auth-container" id="loginForm">
