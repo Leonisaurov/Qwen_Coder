@@ -3,10 +3,15 @@ from flask_socketio import SocketIO, emit, join_room
 from datetime import datetime
 import hashlib
 import os
+import logging
+
+# Configurar logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.secret_key = 'tu_clave_secreta_cambiala_en_produccion'
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading', logger=True, engineio_logger=True)
 
 # Base de datos en memoria para usuarios y mensajes
 usuarios = {}  # {username: hashed_password}
@@ -50,26 +55,40 @@ def logout():
     session.clear()
     return redirect(url_for('login'))
 
+@app.route('/api/mensajes')
+def get_mensajes():
+    """Endpoint para obtener mensajes históricos"""
+    return jsonify(mensajes)
+
 # Eventos WebSocket
 @socketio.on('connect')
 def handle_connect():
-    print(f'Cliente conectado: {request.sid}')
+    logger.info(f'Cliente conectado: {request.sid}')
+    emit('connected', {'status': 'ok'})
 
 @socketio.on('disconnect')
 def handle_disconnect():
-    print(f'Cliente desconectado: {request.sid}')
+    logger.info(f'Cliente desconectado: {request.sid}')
 
 @socketio.on('join_chat')
 def handle_join(data):
     username = data.get('username')
     join_room('global')
-    print(f'{username} se unió al chat')
-    emit('system_message', {'text': f'{username} se ha unido al chat'}, room='global', broadcast=True, include_self=False)
+    logger.info(f'{username} se unió al chat desde {request.sid}')
+    
+    # Enviar mensajes históricos al nuevo usuario
+    for msg in mensajes[-20:]:  # Últimos 20 mensajes
+        emit('receive_message', msg, room=request.sid)
+    
+    emit('system_message', {'text': f'{username} se ha unido al chat'}, room='global', include_self=False)
+    logger.info(f'Mensajes históricos enviados a {username}')
 
 @socketio.on('send_message')
 def handle_message(data):
     username = data.get('username')
     mensaje = data.get('mensaje')
+    
+    logger.info(f'Mensaje recibido de {username}: {mensaje}')
     
     if mensaje and username:
         msg_data = {
@@ -82,9 +101,11 @@ def handle_message(data):
         if len(mensajes) > 50:
             mensajes.pop(0)
         
-        # Emitir a todos en la sala
-        emit('receive_message', msg_data, room='global', broadcast=True)
+        # Emitir a todos en la sala global
+        emit('receive_message', msg_data, room='global')
+        logger.info(f'Mensaje broadcasteado a la sala global')
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5001))
-    socketio.run(app, debug=True, host='0.0.0.0', port=port, allow_unsafe_werkzeug=True)
+    logger.info(f"Iniciando servidor en puerto {port}")
+    socketio.run(app, debug=False, host='0.0.0.0', port=port, allow_unsafe_werkzeug=True)
