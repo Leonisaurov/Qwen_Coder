@@ -1,9 +1,12 @@
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify
+from flask_socketio import SocketIO, emit, join_room
 from datetime import datetime
 import hashlib
+import os
 
 app = Flask(__name__)
 app.secret_key = 'tu_clave_secreta_cambiala_en_produccion'
+socketio = SocketIO(app, cors_allowed_origins="*")
 
 # Base de datos en memoria para usuarios y mensajes
 usuarios = {}  # {username: hashed_password}
@@ -16,7 +19,7 @@ def hash_password(password):
 def index():
     if 'usuario' not in session:
         return redirect(url_for('login'))
-    return render_template('index.html', usuario=session['usuario'], mensajes=mensajes)
+    return render_template('index.html', usuario=session['usuario'])
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -47,29 +50,41 @@ def logout():
     session.clear()
     return redirect(url_for('login'))
 
-@app.route('/enviar', methods=['POST'])
-def enviar():
-    if 'usuario' not in session:
-        return jsonify({'error': 'No autorizado'}), 401
+# Eventos WebSocket
+@socketio.on('connect')
+def handle_connect():
+    print(f'Cliente conectado: {request.sid}')
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    print(f'Cliente desconectado: {request.sid}')
+
+@socketio.on('join_chat')
+def handle_join(data):
+    username = data.get('username')
+    join_room('global')
+    print(f'{username} se unió al chat')
+    emit('system_message', {'text': f'{username} se ha unido al chat'}, room='global', broadcast=True, include_self=False)
+
+@socketio.on('send_message')
+def handle_message(data):
+    username = data.get('username')
+    mensaje = data.get('mensaje')
     
-    mensaje = request.form.get('mensaje', '').strip()
-    if mensaje:
-        mensajes.append({
-            'username': session['usuario'],
+    if mensaje and username:
+        msg_data = {
+            'username': username,
             'mensaje': mensaje,
             'timestamp': datetime.now().strftime('%H:%M')
-        })
+        }
+        mensajes.append(msg_data)
         # Mantener solo los últimos 50 mensajes
         if len(mensajes) > 50:
             mensajes.pop(0)
-    
-    return redirect(url_for('index'))
-
-@app.route('/api/mensajes')
-def get_mensajes():
-    return jsonify(mensajes)
+        
+        # Emitir a todos en la sala
+        emit('receive_message', msg_data, room='global', broadcast=True)
 
 if __name__ == '__main__':
-    import os
     port = int(os.environ.get("PORT", 5001))
-    app.run(debug=True, host='0.0.0.0', port=port)
+    socketio.run(app, debug=True, host='0.0.0.0', port=port, allow_unsafe_werkzeug=True)

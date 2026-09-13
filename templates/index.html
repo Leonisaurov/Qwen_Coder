@@ -3,21 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chat - {{ usuario }}</title>
+    <title>Chat - {{ usuario or 'Login' }}</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.0/socket.io.min.js"></script>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background-color: #121212;
             color: #e0e0e0;
             min-height: 100vh;
         }
-
         .header {
             background-color: #1e1e1e;
             padding: 20px 30px;
@@ -26,108 +21,66 @@
             align-items: center;
             border-bottom: 1px solid #2a2a2a;
         }
-
-        .header h1 {
-            font-weight: 300;
-            font-size: 24px;
-            color: #ffffff;
-        }
-
-        .user-info {
-            display: flex;
-            align-items: center;
-            gap: 15px;
-        }
-
-        .username {
-            color: #888;
-            font-size: 14px;
-        }
-
-        .username span {
-            color: #6c5ce7;
-            font-weight: 500;
-        }
-
+        .header h1 { font-weight: 300; font-size: 24px; color: #fff; }
+        .user-info { display: flex; align-items: center; gap: 15px; }
+        .username { color: #888; font-size: 14px; }
+        .username span { color: #6c5ce7; font-weight: 500; }
         .logout-btn {
             padding: 8px 16px;
-            background-color: transparent;
+            background: transparent;
             border: 1px solid #444;
             color: #e0e0e0;
             border-radius: 6px;
             cursor: pointer;
             font-size: 14px;
             transition: all 0.3s;
-            text-decoration: none;
         }
-
-        .logout-btn:hover {
-            border-color: #ff6b6b;
-            color: #ff6b6b;
-        }
-
+        .logout-btn:hover { border-color: #ff6b6b; color: #ff6b6b; }
         .chat-container {
             max-width: 800px;
             margin: 0 auto;
             padding: 30px 20px;
+            padding-bottom: 100px;
         }
-
         .messages {
             display: flex;
             flex-direction: column;
             gap: 15px;
-            margin-bottom: 30px;
-            max-height: 60vh;
+            max-height: 70vh;
             overflow-y: auto;
         }
-
         .message {
             background-color: #1e1e1e;
             padding: 15px 20px;
             border-radius: 12px;
             animation: fadeIn 0.3s ease;
         }
-
         @keyframes fadeIn {
-            from {
-                opacity: 0;
-                transform: translateY(10px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
         }
-
         .message-header {
             display: flex;
             justify-content: space-between;
             margin-bottom: 8px;
             font-size: 13px;
         }
-
-        .message-user {
-            color: #6c5ce7;
-            font-weight: 500;
-        }
-
-        .message-time {
+        .message-user { color: #6c5ce7; font-weight: 500; }
+        .message-time { color: #666; }
+        .message-text { color: #e0e0e0; line-height: 1.5; word-wrap: break-word; }
+        .system-message {
+            text-align: center;
             color: #666;
+            font-size: 13px;
+            font-style: italic;
+            padding: 10px;
         }
-
-        .message-text {
-            color: #e0e0e0;
-            line-height: 1.5;
-            word-wrap: break-word;
-        }
-
         .empty-state {
             text-align: center;
             color: #666;
             padding: 60px 20px;
             font-style: italic;
         }
-
         .input-form {
             position: fixed;
             bottom: 0;
@@ -137,14 +90,12 @@
             padding: 20px;
             border-top: 1px solid #2a2a2a;
         }
-
         .input-container {
             max-width: 800px;
             margin: 0 auto;
             display: flex;
             gap: 15px;
         }
-
         .input-form input {
             flex: 1;
             padding: 14px 18px;
@@ -153,18 +104,9 @@
             border-radius: 10px;
             color: #e0e0e0;
             font-size: 16px;
-            transition: border-color 0.3s;
         }
-
-        .input-form input:focus {
-            outline: none;
-            border-color: #6c5ce7;
-        }
-
-        .input-form input::placeholder {
-            color: #666;
-        }
-
+        .input-form input:focus { outline: none; border-color: #6c5ce7; }
+        .input-form input::placeholder { color: #666; }
         .input-form button {
             padding: 14px 28px;
             background-color: #6c5ce7;
@@ -173,97 +115,214 @@
             border-radius: 10px;
             font-size: 16px;
             cursor: pointer;
-            transition: background-color 0.3s;
             font-weight: 500;
         }
-
-        .input-form button:hover {
-            background-color: #5b4cdb;
+        .input-form button:hover { background-color: #5b4cdb; }
+        .auth-container {
+            max-width: 400px;
+            margin: 100px auto;
+            padding: 30px;
+            background-color: #1e1e1e;
+            border-radius: 12px;
+            border: 1px solid #2a2a2a;
         }
-
-        /* Scrollbar styling */
-        .messages::-webkit-scrollbar {
-            width: 8px;
+        .auth-container h2 { margin-bottom: 20px; font-weight: 300; color: #fff; }
+        .auth-form { display: flex; flex-direction: column; gap: 15px; }
+        .auth-form input {
+            padding: 14px 18px;
+            background-color: #2a2a2a;
+            border: 1px solid #333;
+            border-radius: 10px;
+            color: #e0e0e0;
+            font-size: 16px;
         }
-
-        .messages::-webkit-scrollbar-track {
-            background: #1a1a1a;
+        .auth-form input:focus { outline: none; border-color: #6c5ce7; }
+        .auth-form button {
+            padding: 14px 28px;
+            background-color: #6c5ce7;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            cursor: pointer;
+            font-weight: 500;
         }
-
-        .messages::-webkit-scrollbar-thumb {
-            background: #444;
-            border-radius: 4px;
+        .error-msg { color: #ff6b6b; font-size: 14px; margin-top: 10px; }
+        .switch-auth {
+            margin-top: 20px;
+            text-align: center;
+            color: #888;
+            font-size: 14px;
         }
-
-        .messages::-webkit-scrollbar-thumb:hover {
-            background: #555;
-        }
+        .switch-auth a { color: #6c5ce7; text-decoration: none; cursor: pointer; }
+        .messages::-webkit-scrollbar { width: 8px; }
+        .messages::-webkit-scrollbar-track { background: #1a1a1a; }
+        .messages::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
+        .hidden { display: none; }
     </style>
 </head>
 <body>
+    {% if usuario %}
     <div class="header">
         <h1>💬 Chat</h1>
         <div class="user-info">
             <span class="username">Hola, <span>{{ usuario }}</span></span>
-            <a href="/logout" class="logout-btn">Salir</a>
+            <button class="logout-btn" onclick="logout()">Salir</button>
         </div>
     </div>
-
     <div class="chat-container">
         <div class="messages" id="messages">
-            {% if mensajes %}
-                {% for msg in mensajes %}
-                <div class="message">
-                    <div class="message-header">
-                        <span class="message-user">{{ msg.username }}</span>
-                        <span class="message-time">{{ msg.timestamp }}</span>
-                    </div>
-                    <div class="message-text">{{ msg.mensaje }}</div>
-                </div>
-                {% endfor %}
-            {% else %}
-                <div class="empty-state">
-                    No hay mensajes aún.<br>Sé el primero en escribir algo!
-                </div>
-            {% endif %}
+            <div class="empty-state">No hay mensajes aún.<br>Sé el primero!</div>
         </div>
     </div>
-
-    <form class="input-form" action="/enviar" method="POST" id="chatForm">
+    <form class="input-form" id="chatForm">
         <div class="input-container">
-            <input type="text" name="mensaje" placeholder="Escribe un mensaje..." required autocomplete="off">
+            <input type="text" id="messageInput" placeholder="Escribe un mensaje..." required autocomplete="off">
             <button type="submit">Enviar</button>
         </div>
     </form>
-
     <script>
-        // Auto-scroll al final de los mensajes
         const messagesContainer = document.getElementById('messages');
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        const messageInput = document.getElementById('messageInput');
+        const currentUser = '{{ usuario }}';
+        
+        // Conectar WebSocket
+        const socket = io();
+        
+        socket.on('connect', () => {
+            console.log('Conectado al servidor WebSocket');
+            // Unirse a la sala global
+            socket.emit('join_chat', { username: currentUser });
+        });
+        
+        socket.on('receive_message', (msg) => {
+            addMessage(msg);
+            scrollToBottom();
+        });
+        
+        socket.on('system_message', (data) => {
+            const sysDiv = document.createElement('div');
+            sysDiv.className = 'system-message';
+            sysDiv.textContent = data.text;
+            messagesContainer.appendChild(sysDiv);
+            scrollToBottom();
+        });
+        
+        document.getElementById('chatForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const text = messageInput.value.trim();
+            if (!text) return;
+            
+            // Enviar vía WebSocket
+            socket.emit('send_message', {
+                username: currentUser,
+                mensaje: text
+            });
+            
+            messageInput.value = '';
+        });
 
-        // Auto-refresh cada 5 segundos para nuevos mensajes
-        setInterval(async () => {
+        function addMessage(msg) {
+            const emptyState = messagesContainer.querySelector('.empty-state');
+            if (emptyState) emptyState.remove();
+            
+            // Evitar duplicados
+            const existing = Array.from(messagesContainer.querySelectorAll('.message')).find(el => 
+                el.querySelector('.message-user').textContent === msg.username &&
+                el.querySelector('.message-time').textContent === msg.timestamp &&
+                el.querySelector('.message-text').textContent === msg.mensaje
+            );
+            if (existing) return;
+            
+            const msgDiv = document.createElement('div');
+            msgDiv.className = 'message';
+            msgDiv.innerHTML = '<div class="message-header"><span class="message-user">' + escapeHtml(msg.username) + '</span><span class="message-time">' + msg.timestamp + '</span></div><div class="message-text">' + escapeHtml(msg.mensaje) + '</div>';
+            messagesContainer.appendChild(msgDiv);
+        }
+
+        function scrollToBottom() {
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        async function logout() {
+            window.location.href = '/logout';
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+    {% else %}
+    <div class="auth-container" id="loginForm">
+        <h2>Iniciar Sesión</h2>
+        <form class="auth-form" onsubmit="handleLogin(event)">
+            <input type="text" id="loginUser" placeholder="Nombre de usuario" required>
+            <input type="password" id="loginPass" placeholder="Contraseña" required>
+            <button type="submit">Entrar</button>
+            <div class="error-msg" id="loginError"></div>
+        </form>
+        <div class="switch-auth">¿No tienes cuenta? <a onclick="showRegister()">Regístrate</a></div>
+    </div>
+    <div class="auth-container hidden" id="registerForm">
+        <h2>Registrarse</h2>
+        <form class="auth-form" onsubmit="handleRegister(event)">
+            <input type="text" id="regUser" placeholder="Nombre de usuario" required>
+            <input type="password" id="regPass" placeholder="Contraseña" required>
+            <button type="submit">Crear cuenta</button>
+            <div class="error-msg" id="regError"></div>
+        </form>
+        <div class="switch-auth">¿Ya tienes cuenta? <a onclick="showLogin()">Inicia sesión</a></div>
+    </div>
+    <script>
+        function showRegister() {
+            document.getElementById('loginForm').classList.add('hidden');
+            document.getElementById('registerForm').classList.remove('hidden');
+        }
+        function showLogin() {
+            document.getElementById('registerForm').classList.add('hidden');
+            document.getElementById('loginForm').classList.remove('hidden');
+        }
+        async function handleLogin(e) {
+            e.preventDefault();
+            const username = document.getElementById('loginUser').value;
+            const password = document.getElementById('loginPass').value;
             try {
-                const response = await fetch('/api/mensajes');
-                const data = await response.json();
-                
-                // Aquí podrías implementar una lógica más sofisticada
-                // para solo agregar mensajes nuevos sin recargar toda la página
-                if (data.length !== {{ mensajes|length }}) {
-                    location.reload();
+                const response = await fetch('/login', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                    body: `username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`
+                });
+                if (response.ok || response.redirected) window.location.href = '/';
+                else {
+                    const data = await response.json();
+                    document.getElementById('loginError').textContent = data.message || 'Error';
                 }
             } catch (error) {
-                console.error('Error fetching messages:', error);
+                document.getElementById('loginError').textContent = 'Error de conexión';
             }
-        }, 5000);
-
-        // Enter para enviar
-        document.querySelector('input[name="mensaje"]').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                document.getElementById('chatForm').submit();
+        }
+        async function handleRegister(e) {
+            e.preventDefault();
+            const username = document.getElementById('regUser').value;
+            const password = document.getElementById('regPass').value;
+            try {
+                const response = await fetch('/login', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                    body: `username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`
+                });
+                if (response.ok || response.redirected) window.location.href = '/';
+                else {
+                    const data = await response.json();
+                    document.getElementById('regError').textContent = data.message || 'Error';
+                }
+            } catch (error) {
+                document.getElementById('regError').textContent = 'Error de conexión';
             }
-        });
+        }
     </script>
+    {% endif %}
 </body>
 </html>
