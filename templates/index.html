@@ -186,16 +186,26 @@
         const messageInput = document.getElementById('messageInput');
         const currentUser = '{{ usuario }}';
         
-        // Conectar WebSocket
-        const socket = io();
+        // Conectar WebSocket con configuración explícita
+        const socket = io({
+            transports: ['websocket', 'polling'],
+            reconnection: true,
+            reconnectionAttempts: 5,
+            reconnectionDelay: 1000
+        });
         
         socket.on('connect', () => {
-            console.log('Conectado al servidor WebSocket');
+            console.log('✅ Conectado al servidor WebSocket');
             // Unirse a la sala global
             socket.emit('join_chat', { username: currentUser });
         });
         
+        socket.on('connect_error', (error) => {
+            console.error('❌ Error de conexión:', error);
+        });
+        
         socket.on('receive_message', (msg) => {
+            console.log('📨 Mensaje recibido:', msg);
             addMessage(msg);
             scrollToBottom();
         });
@@ -208,15 +218,35 @@
             scrollToBottom();
         });
         
+        // Cargar mensajes históricos al iniciar
+        async function loadHistoricalMessages() {
+            try {
+                const response = await fetch('/api/mensajes');
+                const historicalMessages = await response.json();
+                console.log('📜 Cargando', historicalMessages.length, 'mensajes históricos');
+                historicalMessages.forEach(msg => addMessage(msg));
+                scrollToBottom();
+            } catch (error) {
+                console.error('Error cargando mensajes históricos:', error);
+            }
+        }
+        
+        // Cargar mensajes al iniciar
+        loadHistoricalMessages();
+        
         document.getElementById('chatForm').addEventListener('submit', (e) => {
             e.preventDefault();
             const text = messageInput.value.trim();
             if (!text) return;
             
+            console.log('📤 Enviando mensaje:', text);
+            
             // Enviar vía WebSocket
             socket.emit('send_message', {
                 username: currentUser,
                 mensaje: text
+            }, (ack) => {
+                console.log('Ack:', ack);
             });
             
             messageInput.value = '';
@@ -226,16 +256,16 @@
             const emptyState = messagesContainer.querySelector('.empty-state');
             if (emptyState) emptyState.remove();
             
-            // Evitar duplicados
+            // Evitar duplicados usando un ID único basado en timestamp + username
+            const msgId = `${msg.username}-${msg.timestamp}-${msg.mensaje}`;
             const existing = Array.from(messagesContainer.querySelectorAll('.message')).find(el => 
-                el.querySelector('.message-user').textContent === msg.username &&
-                el.querySelector('.message-time').textContent === msg.timestamp &&
-                el.querySelector('.message-text').textContent === msg.mensaje
+                el.dataset.msgId === msgId
             );
             if (existing) return;
             
             const msgDiv = document.createElement('div');
             msgDiv.className = 'message';
+            msgDiv.dataset.msgId = msgId;
             msgDiv.innerHTML = '<div class="message-header"><span class="message-user">' + escapeHtml(msg.username) + '</span><span class="message-time">' + msg.timestamp + '</span></div><div class="message-text">' + escapeHtml(msg.mensaje) + '</div>';
             messagesContainer.appendChild(msgDiv);
         }
