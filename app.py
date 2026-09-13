@@ -146,23 +146,24 @@ def handle_disconnect():
     username = session.get('username')
     if username and username in usuarios_conectados:
         usuarios_conectados.discard(username)
-        emit('user_left', {'username': username}, broadcast=True)
+        emit('usuario_desconectado', {'username': username}, broadcast=True)
         print(f'Usuario desconectado: {username}')
 
-@socketio.on('join_chat')
+@socketio.on('unirse_chat')
 def handle_join():
     username = session.get('username')
     if username:
         join_room('chat_general')
         usuarios_conectados.add(username)
-        emit('user_joined', {'username': username}, broadcast=True)
-        emit('receive_message', {'messages': mensajes_db[-50:]})
+        emit('usuario_conectado', {'username': username}, broadcast=True)
+        # Enviar historial
+        emit('historial_mensajes', mensajes_db[-50:])
         print(f'{username} se unió al chat')
 
-@socketio.on('send_message')
+@socketio.on('enviar_mensaje')
 def handle_message(data):
     username = session.get('username')
-    message_text = data.get('message', '')
+    message_text = data.get('msg', '')
     
     if not username or not message_text:
         return
@@ -171,14 +172,14 @@ def handle_message(data):
     if not message_text or len(message_text) > 500:
         return
         
-    timestamp = datetime.now().isoformat()
+    timestamp = datetime.now().strftime('%H:%M')
     
     new_message = {
         'id': secrets.token_hex(8),
-        'username': username,
-        'message': message_text,
-        'timestamp': timestamp,
-        'avatar_color': usuarios_db.get(username, {}).get('avatar_color', '#cccccc')
+        'user': username,
+        'msg': message_text,
+        'time': timestamp,
+        'color': usuarios_db.get(username, {}).get('avatar_color', '#cccccc')
     }
     
     mensajes_db.append(new_message)
@@ -194,13 +195,13 @@ def handle_message(data):
     if len(mensajes_db) % 10 == 0:
         guardar_datos()
     
-    emit('receive_message', {'message': new_message}, broadcast=True)
+    emit('nuevo_mensaje', new_message, broadcast=True)
 
 @socketio.on('typing')
 def handle_typing():
     username = session.get('username')
     if username:
-        emit('user_typing', {'username': username}, broadcast=True, include_self=False)
+        emit('usuario_escribiendo', {'username': username}, broadcast=True, include_self=False)
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5001))
