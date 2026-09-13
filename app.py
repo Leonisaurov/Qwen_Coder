@@ -1,262 +1,207 @@
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify, abort
-from flask_socketio import SocketIO, emit, join_room
-from datetime import datetime
-import hashlib
 import os
-import logging
 import json
 import secrets
-import html
-from functools import wraps
-
-# Configurar logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from datetime import datetime
+from flask import Flask, render_template, request, session, jsonify, abort
+from flask_socketio import SocketIO, emit, join_room
+from werkzeug.security import generate_password_hash, check_password_hash
+import atexit
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(32))
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', secrets.token_hex(16))
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 # Archivos de persistencia
 USUARIOS_FILE = 'usuarios.json'
 MENSAJES_FILE = 'mensajes.json'
 
-# Base de datos en memoria con caché
-usuarios = {}  # {username: {password_hash, salt, fecha_registro, mensajes_enviados}}
-mensajes = []  # [{username, mensaje, timestamp}]
+# Variables globales
+usuarios_db = {}
+mensajes_db = []
+usuarios_conectados = set()
 
 def cargar_datos():
-    """Cargar datos desde archivos JSON"""
-    global usuarios, mensajes
-    try:
-        if os.path.exists(USUARIOS_FILE):
+    global usuarios_db, mensajes_db
+    if os.path.exists(USUARIOS_FILE):
+        try:
             with open(USUARIOS_FILE, 'r', encoding='utf-8') as f:
-                usuarios = json.load(f)
-            logger.info(f"Cargados {len(usuarios)} usuarios")
-    except Exception as e:
-        logger.error(f"Error cargando usuarios: {e}")
-        usuarios = {}
+                usuarios_db = json.load(f)
+        except:
+            usuarios_db = {}
     
-    try:
-        if os.path.exists(MENSAJES_FILE):
+    if os.path.exists(MENSAJES_FILE):
+        try:
             with open(MENSAJES_FILE, 'r', encoding='utf-8') as f:
-                mensajes = json.load(f)
-            logger.info(f"Cargados {len(mensajes)} mensajes")
-    except Exception as e:
-        logger.error(f"Error cargando mensajes: {e}")
-        mensajes = []
+                mensajes_db = json.load(f)
+        except:
+            mensajes_db = []
 
-def guardar_usuarios():
-    """Guardar usuarios en archivo JSON"""
+def guardar_datos():
     try:
         with open(USUARIOS_FILE, 'w', encoding='utf-8') as f:
-            json.dump(usuarios, f, indent=2, ensure_ascii=False)
-    except Exception as e:
-        logger.error(f"Error guardando usuarios: {e}")
-
-def guardar_mensajes():
-    """Guardar mensajes en archivo JSON"""
-    try:
+            json.dump(usuarios_db, f, ensure_ascii=False, indent=2)
         with open(MENSAJES_FILE, 'w', encoding='utf-8') as f:
-            json.dump(mensajes[-100:], f, indent=2, ensure_ascii=False)  # Últimos 100
+            json.dump(mensajes_db, f, ensure_ascii=False, indent=2)
     except Exception as e:
-        logger.error(f"Error guardando mensajes: {e}")
+        print(f"Error guardando datos: {e}")
 
-def hash_password(password, salt=None):
-    """Hashear contraseña con salt usando PBKDF2"""
-    if salt is None:
-        salt = secrets.token_hex(16)
-    # Usar PBKDF2 para mayor seguridad
-    password_hash = hashlib.pbkdf2_hmac(
-        'sha256',
-        password.encode('utf-8'),
-        salt.encode('utf-8'),
-        100000  # Iteraciones
-    ).hex()
-    return password_hash, salt
+# Cargar datos al inicio
+cargar_datos()
 
-def verify_password(password, stored_hash, salt):
-    """Verificar contraseña"""
-    password_hash, _ = hash_password(password, salt)
-    return secrets.compare_digest(password_hash, stored_hash)
+# Guardar al cerrar
+@atexit.register
+def guardar_al_salir():
+    guardar_datos()
 
 def sanitize_input(text):
-    """Sanitizar input para prevenir XSS"""
     if not text:
-        return ''
-    # Escapar caracteres HTML
-    return html.escape(str(text).strip())[:500]  # Limitar longitud
-
-def login_required(f):
-    """Decorator para requerir login"""
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if 'usuario' not in session:
-            return jsonify({'error': 'No autorizado'}), 401
-        return f(*args, **kwargs)
-    return decorated_function
-
-# Cargar datos al iniciar
-cargar_datos()
+        return ""
+    return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;').replace("'", '&#39;')
 
 @app.route('/')
 def index():
-    if 'usuario' not in session:
-        return redirect(url_for('login'))
-    return render_template('index.html', usuario=session['usuario'])
+    username = session.get('username')
+    return render_template('index.html', username=username)
 
-@app.route('/login', methods=['GET', 'POST'])
+@app.route('/api/register', methods=['POST'])
+def register():
+    data = request.json
+    username = data.get('username', '').strip() if data.get('username') else ''
+    password = data.get('password', '') if data.get('password') else ''
+
+    if not username or not password:
+        return jsonify({'error': 'Usuario y contraseña requeridos'}), 400
+    
+    if len(username) < 3 or len(username) > 20:
+        return jsonify({'error': 'El usuario debe tener entre 3 y 20 caracteres'}), 400
+    
+    if len(password) < 4:
+        return jsonify({'error': 'La contraseña debe tener al menos 4 caracteres'}), 400
+
+    if not username.isalnum():
+        return jsonify({'error': 'El usuario solo puede contener letras y números'}), 400
+
+    if username in usuarios_db:
+        return jsonify({'error': 'El usuario ya existe'}), 400
+
+    usuarios_db[username] = {
+        'password': generate_password_hash(password, method='pbkdf2:sha256'),
+        'registered_at': datetime.now().isoformat(),
+        'message_count': 0,
+        'avatar_color': '#%06X' % secrets.randbelow(0xFFFFFF)
+    }
+    guardar_datos()
+    
+    return jsonify({'success': True})
+
+@app.route('/api/login', methods=['POST'])
 def login():
-    error = None
-    if request.method == 'POST':
-        username = request.form.get('username', '').strip()
-        password = request.form.get('password', '')
-        
-        # Validaciones de seguridad
-        if not username or not password:
-            error = 'Por favor completa todos los campos'
-        elif len(username) < 3 or len(username) > 20:
-            error = 'El nombre de usuario debe tener entre 3 y 20 caracteres'
-        elif len(password) < 4:
-            error = 'La contraseña debe tener al menos 4 caracteres'
-        elif not username.isalnum():
-            error = 'El nombre de usuario solo puede contener letras y números'
-        else:
-            username = sanitize_input(username)
-            
-            if username in usuarios:
-                # Usuario existente, verificar contraseña
-                user_data = usuarios[username]
-                if verify_password(password, user_data['password_hash'], user_data['salt']):
-                    session['usuario'] = username
-                    return redirect(url_for('index'))
-                else:
-                    error = 'Contraseña incorrecta'
-            else:
-                # Nuevo usuario, registrarlo automáticamente
-                password_hash, salt = hash_password(password)
-                usuarios[username] = {
-                    'password_hash': password_hash,
-                    'salt': salt,
-                    'fecha_registro': datetime.now().isoformat(),
-                    'mensajes_enviados': 0
-                }
-                guardar_usuarios()
-                session['usuario'] = username
-                return redirect(url_for('index'))
-    
-    return render_template('login.html', error=error)
+    data = request.json
+    username = data.get('username', '').strip() if data.get('username') else ''
+    password = data.get('password', '') if data.get('password') else ''
 
-@app.route('/logout')
+    user = usuarios_db.get(username)
+    if user and check_password_hash(user['password'], password):
+        session['username'] = username
+        return jsonify({'success': True})
+    
+    return jsonify({'error': 'Credenciales inválidas'}), 401
+
+@app.route('/api/logout', methods=['POST'])
 def logout():
-    session.clear()
-    return redirect(url_for('login'))
+    session.pop('username', None)
+    return jsonify({'success': True})
 
-@app.route('/api/mensajes')
-@login_required
-def get_mensajes():
-    """Endpoint para obtener mensajes históricos"""
-    return jsonify(mensajes[-50:])  # Últimos 50 mensajes
-
-@app.route('/api/perfil/<username>')
-@login_required
-def get_perfil(username):
-    """Obtener perfil público de un usuario"""
-    username = sanitize_input(username)
-    
-    if username not in usuarios:
+@app.route('/api/profile/<username>')
+def get_profile(username):
+    user = usuarios_db.get(username)
+    if not user:
         abort(404)
     
-    user_data = usuarios[username]
-    
-    # Generar color de avatar basado en el username
-    color_hash = hashlib.md5(username.encode()).hexdigest()[:6]
-    avatar_color = f"#{color_hash}"
-    
-    # Calcular mensajes enviados (contando en el historial)
-    mensajes_count = sum(1 for msg in mensajes if msg.get('username') == username)
-    
+    try:
+        reg_date = datetime.fromisoformat(user['registered_at'])
+        days_active = (datetime.now() - reg_date).days + 1
+    except:
+        days_active = 1
+
     return jsonify({
         'username': username,
-        'fecha_registro': user_data.get('fecha_registro', datetime.now().isoformat()),
-        'mensajes_enviados': mensajes_count,
-        'avatar_color': avatar_color
+        'registered_at': user['registered_at'],
+        'message_count': user['message_count'],
+        'avatar_color': user['avatar_color'],
+        'days_active': days_active
     })
 
-# Eventos WebSocket
+@app.route('/api/messages', methods=['GET'])
+def get_messages():
+    return jsonify(mensajes_db[-50:])  # Últimos 50 mensajes
+
+# WebSocket Events
 @socketio.on('connect')
 def handle_connect():
-    logger.info(f'Cliente conectado: {request.sid}')
-    emit('connected', {'status': 'ok'})
+    print(f'Cliente conectado: {request.sid}')
 
 @socketio.on('disconnect')
 def handle_disconnect():
-    logger.info(f'Cliente desconectado: {request.sid}')
+    username = session.get('username')
+    if username and username in usuarios_conectados:
+        usuarios_conectados.discard(username)
+        emit('user_left', {'username': username}, broadcast=True)
+        print(f'Usuario desconectado: {username}')
 
 @socketio.on('join_chat')
-def handle_join(data):
-    username = data.get('username')
-    if not username:
-        return
-    
-    username = sanitize_input(username)
-    join_room('global')
-    logger.info(f'{username} se unió al chat desde {request.sid}')
-    
-    # Enviar mensajes históricos al nuevo usuario
-    for msg in mensajes[-20:]:  # Últimos 20 mensajes
-        emit('receive_message', msg, room=request.sid)
-    
-    emit('system_message', {'text': f'{username} se ha unido al chat'}, room='global', include_self=False)
-    logger.info(f'Mensajes históricos enviados a {username}')
+def handle_join():
+    username = session.get('username')
+    if username:
+        join_room('chat_general')
+        usuarios_conectados.add(username)
+        emit('user_joined', {'username': username}, broadcast=True)
+        emit('receive_message', {'messages': mensajes_db[-50:]})
+        print(f'{username} se unió al chat')
 
 @socketio.on('send_message')
 def handle_message(data):
-    username = data.get('username')
-    mensaje = data.get('mensaje')
+    username = session.get('username')
+    message_text = data.get('message', '')
     
-    if not username or not mensaje:
+    if not username or not message_text:
         return
     
-    username = sanitize_input(username)
-    mensaje = sanitize_input(mensaje)
+    message_text = sanitize_input(message_text.strip())
+    if not message_text or len(message_text) > 500:
+        return
+        
+    timestamp = datetime.now().isoformat()
     
-    logger.info(f'Mensaje recibido de {username}: {mensaje}')
+    new_message = {
+        'id': secrets.token_hex(8),
+        'username': username,
+        'message': message_text,
+        'timestamp': timestamp,
+        'avatar_color': usuarios_db.get(username, {}).get('avatar_color', '#cccccc')
+    }
     
-    if mensaje and username:
-        msg_data = {
-            'username': username,
-            'mensaje': mensaje,
-            'timestamp': datetime.now().strftime('%H:%M')
-        }
-        mensajes.append(msg_data)
-        
-        # Actualizar contador de mensajes del usuario
-        if username in usuarios:
-            usuarios[username]['mensajes_enviados'] = usuarios[username].get('mensajes_enviados', 0) + 1
-            guardar_usuarios()
-        
-        # Mantener solo los últimos 100 mensajes
-        if len(mensajes) > 100:
-            mensajes.pop(0)
-        
-        # Guardar mensajes periódicamente
-        if len(mensajes) % 10 == 0:
-            guardar_mensajes()
-        
-        # Emitir a todos en la sala global
-        emit('receive_message', msg_data, room='global')
-        logger.info(f'Mensaje broadcasteado a la sala global')
+    mensajes_db.append(new_message)
+    
+    if username in usuarios_db:
+        usuarios_db[username]['message_count'] += 1
+    
+    # Mantener últimos 100 mensajes
+    if len(mensajes_db) > 100:
+        mensajes_db.pop(0)
+    
+    # Guardar periódicamente
+    if len(mensajes_db) % 10 == 0:
+        guardar_datos()
+    
+    emit('receive_message', {'message': new_message}, broadcast=True)
+
+@socketio.on('typing')
+def handle_typing():
+    username = session.get('username')
+    if username:
+        emit('user_typing', {'username': username}, broadcast=True, include_self=False)
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5001))
-    logger.info(f"Iniciando servidor en puerto {port}")
-    socketio.run(app, debug=False, host='0.0.0.0', port=port, allow_unsafe_werkzeug=True)
-    
-    # Guardar datos al cerrar
-    import atexit
-    @atexit.register
-    def guardar_al_salir():
-        logger.info("Guardando datos antes de salir...")
-        guardar_usuarios()
-        guardar_mensajes()
+    socketio.run(app, host="0.0.0.0", port=port, debug=False, allow_unsafe_werkzeug=True)
